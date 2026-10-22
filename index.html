@@ -3842,7 +3842,19 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
         m.list.forEach(p => PL.push({ id: p.id, nick: p.nick || 'Jogador', st: p.st === 'playing' ? 'playing' : 'online', mut: 0 }));
         window.BXFR.redraw();
       } else if (m.t === 'searching') { showSearch(m.seconds);
-      } else if (m.t === 'match') { net.room = m.room; net.peers = m.peers; net.bots = !!m.bots; hideSearch(); if (searchCb) { const cb = searchCb; searchCb = null; cb(); } else { const r = $('ffRoot'); if (r && r.style.display !== 'none' && $('ffStart')) { net.pass = true; try { $('ffStart').onclick(); } finally { net.pass = false; } } } // partida criada por convite (X1)
+      } else if (m.t === 'match') {
+        net.room = m.room; net.peers = Array.isArray(m.peers) ? m.peers : []; net.bots = !!m.bots;
+        // Só libera a partida quando houver outro jogador real. Se o servidor oferecer bots, volta à fila.
+        if (net.bots || net.peers.length < 1) {
+          net.room = null; net.peers = [];
+          toast('Ainda não há jogador real. Continuando a procurar…');
+          if (ws && ws.readyState === 1) setTimeout(() => ws.send(JSON.stringify({ t: 'queue' })), 250);
+          showSearch(60);
+        } else {
+          hideSearch();
+          if (searchCb) { const cb = searchCb; searchCb = null; cb(); }
+          else { const r = $('ffRoot'); if (r && r.style.display !== 'none' && $('ffStart')) { net.pass = true; try { $('ffStart').onclick(); } finally { net.pass = false; } } }
+        } // partida criada por convite (X1)
       } else if (m.t === 'st') { if (net.onState) net.onState(m.from, m.d);
       } else if (m.t === 'left') { net.peers = net.peers.filter(p => p.id !== m.id); if (net.onPeerLeft) net.onPeerLeft(m.id);
       } else if (m.t === 'invite' || m.t === 'inviteReply') { if (window.BXFR && window.BXFR.onInvite) window.BXFR.onInvite(m); else toast(((m.from && m.from.nick) || 'Jogador') + ' te convidou'); }
@@ -3885,14 +3897,14 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     searchEl.style.cssText = 'position:fixed;inset:0;z-index:300000;background:rgba(0,0,0,.6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font:600 28px Teko,Impact,sans-serif;letter-spacing:.06em';
     searchEl.innerHTML = '<div>PROCURANDO JOGADORES…</div><div id="bxSec" style="font-size:56px;color:#ffc21a"></div><button id="bxCancel" style="padding:6px 26px;background:#e9e9ee;color:#111;border:0;font:700 22px Teko,Impact,sans-serif">CANCELAR</button>';
     document.body.appendChild(searchEl);
-    let left = sec; const upd = () => { const e = $('bxSec'); if (e) e.textContent = left + 's'; }; upd();
-    searchIv = setInterval(() => { left = Math.max(0, left - 1); upd(); }, 1000);
-    $('bxCancel').onclick = () => { ws.send(JSON.stringify({ t: 'cancel' })); searchCb = null; hideSearch(); };
+    let elapsed = 0; const upd = () => { const e = $('bxSec'); if (e) e.textContent = Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0'); }; upd();
+    searchIv = setInterval(() => { elapsed++; upd(); }, 1000);
+    $('bxCancel').onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'cancel' })); searchCb = null; net.room = null; net.peers = []; hideSearch(); }; 
   }
   function hideSearch() { clearInterval(searchIv); if (searchEl) { searchEl.remove(); searchEl = null; } }
   net.search = function (cb) {           // chamado pelo botão START
-    if (!net.ready || !ws || ws.readyState !== 1) return cb();   // sem servidor/sem login: começa direto (com bots)
-    searchCb = cb; ws.send(JSON.stringify({ t: 'queue' }));
+    if (!net.ready || !ws || ws.readyState !== 1) { toast('Sem conexão com o servidor. Não é possível iniciar X1 real.'); return; }
+    searchCb = cb; showSearch(60); ws.send(JSON.stringify({ t: 'queue' }));
   };
 
   // ---------- salvar / restaurar conta (convidado) ----------
