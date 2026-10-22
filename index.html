@@ -2806,7 +2806,7 @@ const HUDA=(()=>{
       MZ[k]={x:T[0]+(b.max.x-c.grip[0])*f,y:T[1]+(b.max.y*0.7+b.min.y*0.3-c.grip[1])*f};
     }catch(e){console.error("arma",k,e)}},e=>console.error("arma",k,e));
   }
-  ["ump","xm8","de"].forEach(load);
+  window.__gunM=M;["ump","xm8","de"].forEach(load);
   const STAT={xm8:{chest:[17,20],head:[110,125]},ump:{chest:[13,16],head:[95,110]},de:{chest:[38,45],head:[230,260]}};
   const rg=a=>Math.round(a[0]+Math.random()*(a[1]-a[0]));
   window.__wpDmg=function(head,limb){let w=null;try{w=HUDA.cur}catch(e){}const t=STAT[(w&&MAP[w.id])||"xm8"]||STAT.xm8;return head?rg(t.head):limb?Math.max(1,Math.round(rg(t.chest)*.5)):rg(t.chest)};
@@ -2817,7 +2817,7 @@ const HUDA=(()=>{
   window.__gunTick=function(){
     let w=null;try{w=HUDA.cur}catch(e){}
     const k=(w&&MAP[w.id])||"xm8",has=!!M[k];
-    if(k!==kLast||has!==M.__h){kLast=k;M.__h=has;for(const n in M){if(n!=="__h")M[n].visible=(n===k)}procs.forEach(o=>o.visible=!has);window.__gunMuz=has?MZ[k]:null}
+    if(k!==kLast||has!==M.__h){kLast=k;M.__h=has;for(const n in M){if(n!=="__h")M[n].visible=(n===k)}procs.forEach(o=>o.visible=!has);window.__gunMuz=has?MZ[k]:null;window.__gunKeyNow=k}
   };
 })();
 </script>
@@ -2876,9 +2876,9 @@ const HUDA=(()=>{
   const msg=t=>{info.textContent=t;info.style.display=document.body.classList.contains('teste')?'none':'block'};
   function sortear(n){const p=Object.keys(CIDADES),o=[];while(o.length<n)o.push(p.splice(Math.floor(Math.random()*p.length),1)[0]);return o}
   let bots=[],estP=0,pMorreuT=0,dummy=null;window.__humanos={a:1,b:0}; // humanos por lado; o resto vira bot (online preenche aqui)
-  function removerNPC(){if(dummy){scene.remove(dummy.g);dummy=null;tHud(false);const bt=document.getElementById('bTreino');if(bt)bt.textContent='🎯 Treino'}bots.forEach(b=>scene.remove(b.g));bots=[];estP=0;if(npc){scene.remove(npc);npc=null;npcMix=null}}
-  async function criarNPC(pos){
-    const buf=await (await cLer("chardata")).arrayBuffer();
+  function removerNPC(){if(dummy){scene.remove(dummy.g);dummy=null;tHud(false);const bt=document.getElementById('bTreino');if(bt)bt.textContent='🎯 Treino'}bots.forEach(b=>{scene.remove(b.g);if(b.gun)scene.remove(b.gun)});bots=[];estP=0;if(npc){scene.remove(npc);npc=null;npcMix=null}}
+  async function criarNPC(pos,cid){
+    const buf=await (await cLer(cid||"chardata")).arrayBuffer();
     const g=await new Promise((ok,er)=>new THREE.GLTFLoader().parse(buf,"",ok,er));
     const m=g.scene;
     const hub=m.getObjectByName("soco_ff_esquerdo");if(hub)hub.position.set(0,0,0);
@@ -2897,7 +2897,7 @@ const HUDA=(()=>{
     return w;
   }
   let t0=performance.now();
-  (function loop(){requestAnimationFrame(loop);const n=performance.now(),dt=(n-t0)/1000;t0=n;bots.forEach(b=>b.mix&&b.mix.update(dt));if(dummy&&dummy.mix)dummy.mix.update(dt);barrTick(n);rTick(dt)})();
+  (function loop(){requestAnimationFrame(loop);const n=performance.now(),dt=(n-t0)/1000;t0=n;bots.forEach(b=>{if(b.remote&&window.__bxPre)window.__bxPre(b,dt);b.mix&&b.mix.update(dt);if(b.remote&&window.__bxPost)window.__bxPost(b,dt)});if(dummy&&dummy.mix)dummy.mix.update(dt);barrTick(n);rTick(dt)})();
 
   // ===== Barreira de spawn: parede de energia vermelha, dura 15 s e some "evaporando" para cima =====
   let BAR_SEG=20; const DISS=1.3;
@@ -3167,7 +3167,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     if(!best){tiroJogador(null);mostraHit('errou');return}
     const dano=window.__wpDmg?window.__wpDmg(bcab,blimb):(bcab?30:15);
     if(!tiroJogador(bpt))return;
-    const _e0=best.est;botDano(best,dano);if(best.est!==_e0)window.__sfx&&window.__sfx.kill(); // som de kill: só toca pra quem matou (você)
+    const _e0=best.est;if(best.remote)window.__bxHit(best,dano,bcab);else botDano(best,dano);if(best.est!==_e0)window.__sfx&&window.__sfx.kill(); // som de kill: só toca pra quem matou (você)
     dmgNum(bpt,dano,bcab);
     mostraHit((bcab?'🎯 cabeça -':'🎯 -')+dano+(best.est===0?' · inimigo '+best.hp+' HP':' · finalize!'));
   };
@@ -3239,7 +3239,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     ajudaTick(dt);
     if(!R.fase||!bots.length)return;
     if(R.fase==='barreira'){
-      bots.forEach(x=>{if(x.est===0)bPlay(x,'idleArmed')});
+      bots.forEach(x=>{if(x.est===0&&!x.remote)bPlay(x,'idleArmed')});
       if(!PB){R.fase='luta';window.__rFase='luta';R.t1=performance.now();
         $("mCont").textContent="JOGUE!";$("mCont").hidden=false;setTimeout(()=>{$("mCont").hidden=true},900)}
       return;
@@ -3251,6 +3251,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     if(estP===1&&performance.now()-pMorreuT>30000){estP=2;checkFimR()} // caido sem socorro por 30 s
     const pv={pos:pl,est:estP,team:'a',isP:true};
     bots.forEach(x=>{
+      if(x.remote)return;
       if(x.est===2)return;
       const pos=x.g.position;
       if(x.est===1)return;
@@ -3399,7 +3400,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
 
   // ===== GELO (vindo do index): parede de gelo que bloqueia passos/tiros e quebra com tiros =====
   (function(){
-    const V=THREE.Vector3,ICE_MAX=3,ICE_HP=200,ICE_DMG=25,walls=[];window.__iceWalls=walls;
+    const V=THREE.Vector3,ICE_MAX=3,ICE_HP=200,ICE_DMG=25,walls=[],rwalls=[];let nidC=0;Object.defineProperty(window,'__iceWalls',{get:()=>walls.concat(rwalls),configurable:true});
     let proto=null,ghost=null,holding=false,cd=0,iceId=-1,iceDist=1.15;
     const rc=new THREE.Raycaster();
     const btn=document.createElement('button');btn.id='bGelo';btn.className='hb';btn.setAttribute('aria-label','Gelo');document.body.appendChild(btn);
@@ -3412,23 +3413,33 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     function icePos(){let d=iceDist;if(d>1.2){const hw=camColide(pl.x,pl.y-ALT+1.0,pl.z,-Math.sin(yaw),0,-Math.cos(yaw),d+1.2);if(hw!==null)d=Math.max(0.8,Math.min(d,hw-1.2))}
       const p=new V(pl.x-Math.sin(yaw)*d,0,pl.z-Math.cos(yaw)*d),base=pl.y-ALT;p.y=base;
       if(world){rc.set(new V(p.x,base+3,p.z),new V(0,-1,0));rc.near=0;rc.far=6;const h=rc.intersectObjects(world.children,true).find(q=>q.face&&!isSea(q.object)&&!isRio(q.object));if(h)p.y=h.point.y}return p}
-    function removeWall(w){scene.remove(w);const i=walls.indexOf(w);if(i>=0)walls.splice(i,1);const ms=new Set();w.traverse(m=>{if(m.isMesh)ms.add(m)});if(colAll)colAll=colAll.filter(e=>!ms.has(e.o))}
+    function removeWall(w,silent){scene.remove(w);let i=walls.indexOf(w);if(i>=0)walls.splice(i,1);else{i=rwalls.indexOf(w);if(i>=0)rwalls.splice(i,1)}if(!silent&&w.userData.nid&&!w.userData.remote&&window.__bxIceSend)window.__bxIceSend('iceDel',{id:w.userData.nid});const ms=new Set();w.traverse(m=>{if(m.isMesh)ms.add(m)});if(colAll)colAll=colAll.filter(e=>!ms.has(e.o))}
     function place(){if(!proto||cd>performance.now()||!colAll||!colAll.length)return;cd=performance.now()+800;window.__sfx&&window.__sfx.ice();
       const w=proto.clone(true);w.position.copy(icePos());w.rotation.y=yaw+Math.PI;scene.add(w);w.updateMatrixWorld(true);
       w.traverse(m=>{if(m.isMesh){const box=new THREE.Box3().setFromObject(m),sx=box.max.x-box.min.x,sy=box.max.y-box.min.y,sz=box.max.z-box.min.z;colAll.push({o:m,box,sx,sy,sz,tree:false,win:false,terr:false,ice:true})}});
-      w.userData.hp=ICE_HP;walls.push(w);if(walls.length>ICE_MAX)removeWall(walls[0])}
+      w.userData.hp=ICE_HP;w.userData.nid=((window.BX_NET&&window.BX_NET.id)||'l')+':'+(++nidC);walls.push(w);window.__bxIceSend&&window.__bxIceSend('ice',{id:w.userData.nid,x:w.position.x,y:w.position.y,z:w.position.z,r:w.rotation.y,sk:(window.BX_SEL&&window.BX_SEL.ice)||'default'});if(walls.length>ICE_MAX)removeWall(walls[0])}
     function shards(w){const b=new THREE.Box3().setFromObject(w),c=b.getCenter(new V),z=b.getSize(new V),mat=new THREE.MeshBasicMaterial({color:0xaee6ff,transparent:true,opacity:.85}),L=[];
       for(let i=0;i<14;i++){const m=new THREE.Mesh(new THREE.BoxGeometry(.22,.22,.22),mat);m.position.set(c.x+(Math.random()-.5)*z.x,c.y+(Math.random()-.5)*z.y,c.z+(Math.random()-.5)*z.z);m.userData.v=new V((Math.random()-.5)*5,Math.random()*4+1,(Math.random()-.5)*5);scene.add(m);L.push(m)}
       let t=0,pv=performance.now();(function an(n){const dt=Math.min((n-pv)/1000,.05);pv=n;t+=dt;L.forEach(m=>{m.userData.v.y-=14*dt;m.position.addScaledVector(m.userData.v,dt);m.rotation.x+=dt*6;m.rotation.z+=dt*5});mat.opacity=Math.max(0,.85*(1-t/.6));
         if(t<.6)requestAnimationFrame(an);else{L.forEach(m=>{scene.remove(m);m.geometry.dispose()});mat.dispose()}})(pv)}
-    function clear(){while(walls.length)removeWall(walls[walls.length-1]);holding=false;iceId=-1;btn.classList.remove('on')}
+    function clear(){while(walls.length)removeWall(walls[walls.length-1],true);while(rwalls.length)removeWall(rwalls[rwalls.length-1],true);holding=false;iceId=-1;btn.classList.remove('on')}
     window.__iceAPI={clear};
+    // gelo do outro jogador: aparece, bloqueia tiro e quebra igual ao seu (skin escolhida por ele, se existir no registro)
+    window.__iceRemote=function(d){
+      const reg=window.BX_REG&&window.BX_REG.ice&&window.BX_REG.ice[d.sk],pr=reg||proto;if(!pr||!colAll)return;
+      if(walls.concat(rwalls).some(q=>q.userData.nid===d.id))return;
+      const w=pr.clone(true);w.position.set(d.x,d.y,d.z);w.rotation.y=d.r;scene.add(w);w.updateMatrixWorld(true);
+      w.traverse(m=>{if(m.isMesh){const box=new THREE.Box3().setFromObject(m),sx=box.max.x-box.min.x,sy=box.max.y-box.min.y,sz=box.max.z-box.min.z;colAll.push({o:m,box,sx,sy,sz,tree:false,win:false,terr:false,ice:true})}});
+      w.userData.hp=ICE_HP;w.userData.nid=d.id;w.userData.remote=true;rwalls.push(w);window.__sfx&&window.__sfx.ice&&window.__sfx.ice();
+      if(rwalls.length>ICE_MAX)removeWall(rwalls[0],true)};
+    window.__iceRemoteHit=function(id){const w=walls.concat(rwalls).find(q=>q.userData.nid===id);if(!w)return;w.userData.hp-=ICE_DMG;if(w.userData.hp<=0){shards(w);removeWall(w,true)}};
+    window.__iceRemoteDel=function(id){const w=walls.concat(rwalls).find(q=>q.userData.nid===id);if(w)removeWall(w,true)};
     // arrastar o dedo para cima/baixo no botão do gelo afasta/aproxima o gelo (a câmera só gira de lado)
     window.__iceDrag=(id,dyPx)=>{if(id!==iceId||!holding)return false;iceDist=Math.max(0.8,Math.min(7,iceDist-dyPx*0.02));return true};
     // o gelo quebra com os tiros do jogador (paredeEntre devolve em __wallObj o que a bala acertou)
     const _tj=tiroJogador;tiroJogador=function(pt){window.__wallObj=null;const r=_tj(pt),o=window.__wallObj;
-      if(o&&walls.length&&R.fase==='luta'){const w=walls.find(q=>{let f=false;q.traverse(m=>{if(m===o)f=true});return f});
-        if(w){w.userData.hp-=ICE_DMG;if(w.userData.hp<=0){shards(w);removeWall(w)}}}return r};
+      if(o&&(walls.length||rwalls.length)&&R.fase==='luta'){const w=walls.concat(rwalls).find(q=>{let f=false;q.traverse(m=>{if(m===o)f=true});return f});
+        if(w){window.__bxIceSend&&w.userData.nid&&window.__bxIceSend('iceHit',{id:w.userData.nid});w.userData.hp-=ICE_DMG;if(w.userData.hp<=0){shards(w);removeWall(w,true)}}}return r};
     // botao: segurar mostra o gelo (fantasma) e arrastar gira a camera; soltar coloca
     btn.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();lookStart(e);try{btn.setPointerCapture(e.pointerId)}catch(_){}iceId=e.pointerId;iceDist=1.15;holding=true;btn.classList.add('on')});
     addEventListener('pointerup',e=>{if(e.pointerId!==iceId)return;iceId=-1;btn.classList.remove('on');if(holding)place();holding=false},true);
@@ -3465,7 +3476,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       PL_BARRA=BAR_SEG=gRound===0?15:10; // barreira: 15 s na 1ª rodada, 10 s nas outras (igual ao index)
       iniciaBarreira(e[0],e[1],e[2],yaw);
       // Treino/offline pode usar NPCs; em partida online, só jogadores reais.
-      if(!bxOnline) await criaBots({s1:[e[0],e[1],e[2]],s2:[o[0],o[1],o[2]]},1);
+      if(!bxOnline) await criaBots({s1:[e[0],e[1],e[2]],s2:[o[0],o[1],o[2]]},1); else await window.__bxAddRemote([o[0],o[1],o[2]]);
       rStart(GL_AREA,gRound);
       msg('Gladiadores · Partida '+nPartida+' · Rodada '+(gRound+1)+' · placar '+sc.eu+' x '+sc.npc);
     }catch(err){console.error(err);msg('Erro ao iniciar Gladiadores: '+(err&&err.message?err.message:err))}
@@ -3474,6 +3485,101 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
   const bG=document.getElementById('bGlad');
   if(bG)bG.onclick=()=>{if(busy)return;gladIniciar()};
   btn.onclick=()=>{if(busy)return;gladIniciar()};if(bG)bG.style.display='none'; // Bermuda removido: o botão de partida inicia o Gladiadores
+
+  // ===== ONLINE: o outro jogador entra na lista de bots (placar, mira, tiro e fim de rodada funcionam igual), mas é movido pela rede =====
+  (function(){
+    const bnOf=b=>{if(b.bn)return b.bn;const m=b.g.children[0];if(!m)return null;const g=n=>m.getObjectByName(n);
+      return b.bn={S:g('bone_Spine'),S1:g('bone_Spine1'),arms:['Left','Right'].map(k=>({a:g('bone_'+k+'Arm'),f:g('bone_'+k+'ForeArm'),h:g('bone_'+k+'Hand')})),
+        rf:g('bone_Right_Finger21')||g('bone_Right_Finger11'),lf:g('bone_Left_Finger21')||g('bone_Left_Finger11'),RH:g('bone_RightHand'),RF2:g('bone_Right_Finger21'),RI:g('bone_Right_Finger11'),RP:g('bone_Right_Finger41')}};
+    function makeGun(b){
+      const rg=new THREE.Group(),kids=cGun.children.slice();kids.forEach(c=>rg.add(c.clone(true)));
+      const M=window.__gunM||{};b.gIdx={};for(const k in M){if(k!=='__h'&&M[k])b.gIdx[k]=kids.indexOf(M[k])}
+      b.gHold=new Set(Object.values(b.gIdx));rg.visible=false;scene.add(rg);b.gun=rg;b.gkSet=null}
+    function setGunKey(b,k){if(b.gkSet===k)return;b.gkSet=k;const idx=b.gIdx[k],has=idx!==undefined&&idx>=0;b.gun.children.forEach((c,i)=>{c.visible=has?(i===idx):!b.gHold.has(i)})}
+    window.__bxAddRemote=async function(o){
+      window.__bxRemoveRemote();
+      const ch=(window.__bxLast&&window.__bxLast.ch)||'default',id=(window.BX_REG&&window.BX_REG.chars&&window.BX_REG.chars[ch])||'chardata';
+      const g=await criarNPC(o,id);npcMix=null;
+      const b={g,mix:g.userData.mix,team:'b',hp:200,est:0,fhp:60,fire:99,cur:'',curA:null,gy:g.position.y,fr:0,rev:0,zA:0,remote:true,acts:{},tw:{},ikW:0,ikR:0,aimP:0,ch,t0:performance.now(),init:false,synced:false};
+      makeGun(b);bots.push(b);return b};
+    window.__bxRemoveRemote=function(){for(let i=bots.length-1;i>=0;i--){const b=bots[i];if(!b.remote)continue;scene.remove(b.g);if(b.gun)scene.remove(b.gun);bots.splice(i,1)}};
+    window.__bxEstP=()=>estP;
+    window.__bxHit=function(b,d,head){if(window.BX_NET)window.BX_NET.sendState({k:'hit',d:d,h:head?1:0})};
+    async function swap(b,ch){if(b.swapping)return;b.swapping=true;try{const id=(window.BX_REG&&window.BX_REG.chars&&window.BX_REG.chars[ch])||'chardata',p=b.g.position;
+      const g=await criarNPC([p.x,p.y,p.z],id);npcMix=null;scene.remove(b.g);b.g=g;b.mix=g.userData.mix;b.mix.stopAllAction();b.acts={};b.tw={};b.bn=null;b.synced=false;b.ch=ch}catch(e){console.error('skin remota',e)}b.swapping=false}
+    // espelha TODAS as animações que estão tocando no jogador dele (corpo + tronco: soco, recarga, pulo armado...)
+    function syncActs(b,list,k){
+      if(!b.synced){b.mix.stopAllAction();b.acts={};b.tw={};b.synced=true}
+      const seen={};
+      (list||[]).forEach(e=>{const n=e[0],cl=cClips[n];if(!cl)return;seen[n]=1;
+        let a=b.acts[n];
+        if(!a){a=b.mix.clipAction(cl);b.acts[n]=a;a.reset();a.setLoop(e[4]?THREE.LoopOnce:THREE.LoopRepeat,Infinity);a.clampWhenFinished=!!e[4];a.enabled=true;a.play();a.setEffectiveWeight(0);a.time=e[2]}
+        a.timeScale=e[3];b.tw[n]=e[1];if(Math.abs(a.time-e[2])>0.35)a.time=e[2]});
+      for(const n in b.acts){if(!seen[n])b.tw[n]=0;const a=b.acts[n],cur=a.getEffectiveWeight(),w=cur+((b.tw[n]||0)-cur)*k;a.setEffectiveWeight(w);if(w<0.01&&!seen[n]){a.stop();delete b.acts[n];delete b.tw[n]}}}
+    window.__bxPre=function(b,dt){
+      const st=window.__bxLast;if(!st||st.rt<b.t0)return;
+      if(st.ch&&st.ch!==b.ch)swap(b,st.ch);
+      const k=Math.min(1,dt*14),p=b.g.position;
+      if(!b.init||Math.hypot(st.x-p.x,st.z-p.z)>8){p.set(st.x,st.y,st.z);b.init=true}else{p.x+=(st.x-p.x)*k;p.y+=(st.y-p.y)*k;p.z+=(st.z-p.z)*k}
+      let dr=st.r-b.g.rotation.y;dr=Math.atan2(Math.sin(dr),Math.cos(dr));b.g.rotation.y+=dr*k;b.g.rotation.x=st.q||0;
+      b.hp=st.hp;b.gy=p.y;
+      const ne=st.e|0;if(ne!==b.est){b.est=ne;checkFimR()}
+      syncActs(b,st.a,k);
+    };
+    // depois do mixer: inclinação da mira, braços segurando a arma (IK) e a arma, iguais aos seus
+    window.__bxPost=function(b,dt){
+      const st=window.__bxLast,bn=bnOf(b);if(!st||!bn||!b.synced)return;const F=st.f||{};
+      setGunKey(b,st.gk||'xm8');
+      // inclinação do tronco ao mirar
+      b.aimP+=((st.ap||0)-b.aimP)*Math.min(1,dt*12);
+      if(Math.abs(b.aimP)>=0.003&&bn.S){b.g.getWorldQuaternion(aQ3);aAx.set(1,0,0).applyQuaternion(aQ3);aQ1.setFromAxisAngle(aAx,b.aimP*(bn.S1?0.5:1));
+        for(const x of [bn.S,bn.S1]){if(!x)continue;x.updateWorldMatrix(true,false);x.parent.getWorldQuaternion(aQ2);aQ3.copy(aQ2).invert().multiply(aQ1).multiply(aQ2);x.quaternion.premultiply(aQ3)}}
+      const arms=bn.arms,okArms=!arms.some(x=>!x.a||!x.f||!x.h),gun=b.gun;
+      // --- parado com arma: IK das duas mãos ---
+      const onI=(F.cur==='idleArmed'&&!F.pu&&!F.cr&&!F.jt)||F.ju==='idleArmed_up';
+      b.ikW+=((onI?1:0)-b.ikW)*Math.min(1,dt*10);
+      if(b.ikW<0.01||!okArms){gun.visible=false}else{
+        arms[0].a.updateWorldMatrix(true,true);arms[1].a.updateWorldMatrix(true,true);
+        arms[0].a.getWorldPosition(ikA);arms[1].a.getWorldPosition(ikB);
+        ikS.copy(ikA).add(ikB).multiplyScalar(0.5);const w=ikA.distanceTo(ikB)/2;
+        b.g.getWorldQuaternion(ikQ);ikR.set(1,0,0).applyQuaternion(ikQ);ikU.set(0,1,0).applyQuaternion(ikQ);ikF.set(0,0,-1).applyQuaternion(ikQ);
+        for(const x of arms){
+          const q0=x.a.quaternion.clone(),q1=x.f.quaternion.clone();
+          x.a.getWorldPosition(ikp0);x.f.getWorldPosition(ikp1);x.h.getWorldPosition(ikp2);
+          const L1=ikp0.distanceTo(ikp1),L2=ikp1.distanceTo(ikp2),A=L1+L2;
+          const o=Math.sign(ikP.copy(ikp0).sub(ikS).dot(ikR))||1;
+          ikG.copy(ikS).addScaledVector(ikR,0.5*w).addScaledVector(ikU,-0.38*A).addScaledVector(ikF,0.36*A);
+          if(o<=0)ikG.addScaledVector(ikP.copy(ikR).multiplyScalar(-0.8).addScaledVector(ikF,0.25).addScaledVector(ikU,-0.55).normalize(),0.5*A);
+          ikD.copy(ikG).sub(ikp0);let d=ikD.length();d=Math.max(Math.abs(L1-L2)+1e-3,Math.min(L1+L2-1e-3,d));ikD.normalize();
+          const a=(L1*L1-L2*L2+d*d)/(2*d),h=Math.sqrt(Math.max(0,L1*L1-a*a));
+          ikP.copy(ikU).multiplyScalar(-1).addScaledVector(ikR,o*0.4);ikP.addScaledVector(ikD,-ikP.dot(ikD)).normalize();
+          ikE.copy(ikp0).addScaledVector(ikD,a).addScaledVector(ikP,h);ikT.copy(ikp0).addScaledVector(ikD,d);
+          ikRot(x.a,ikt1.copy(ikp1).sub(ikp0),ikt2.copy(ikE).sub(ikp0));
+          x.f.getWorldPosition(ikp1);x.h.getWorldPosition(ikp2);
+          ikRot(x.f,ikt1.copy(ikp2).sub(ikp1),ikt2.copy(ikT).sub(ikp1));
+          const qa=x.a.quaternion.clone(),qf=x.f.quaternion.clone();
+          x.a.quaternion.copy(q0).slerp(qa,b.ikW);x.f.quaternion.copy(q1).slerp(qf,b.ikW);x.a.updateMatrixWorld(true);
+        }
+        arms[1].h.getWorldPosition(ikp0);arms[0].h.getWorldPosition(ikp1);
+        if(bn.rf){bn.rf.getWorldPosition(ikp2);ikp0.lerp(ikp2,0.6)}
+        if(bn.lf){bn.lf.getWorldPosition(ikp2);ikp1.lerp(ikp2,0.6)}
+        ikt1.copy(ikp1).sub(ikp0);const dd=ikt1.length();
+        if(dd>1e-4){cGx.copy(ikt1).divideScalar(dd);cGz.crossVectors(cGx,ikU).normalize();cGy.crossVectors(cGz,cGx);
+          cGM.makeBasis(cGx,cGy,cGz);gun.quaternion.setFromRotationMatrix(cGM);gun.position.copy(ikp0);gun.scale.setScalar(dd/0.4);gun.visible=b.ikW>0.3}
+      }
+      // --- andando/correndo com arma: arma presa na mão direita ---
+      const onW=((F.cur==='walkGun'||F.cur==='reload'||F.ru||(RUNGUN_ANTIGA&&F.cur==='runGun'))&&!F.pu&&!F.jt);
+      b.ikR+=((onW?1:0)-b.ikR)*Math.min(1,dt*10);
+      if(b.ikR>=0.01&&bn.RH&&bn.RF2&&bn.RI&&bn.RP&&okArms){
+        bn.RH.updateWorldMatrix(true,true);bn.RH.getWorldPosition(ikp0);bn.RF2.getWorldPosition(ikp1);bn.RI.getWorldPosition(rgP);bn.RP.getWorldPosition(rgQ);
+        rgX.copy(ikp1).sub(ikp0).normalize();rgY.copy(rgP).sub(rgQ);rgY.addScaledVector(rgX,-rgY.dot(rgX)).normalize();rgZ.crossVectors(rgX,rgY);
+        const sz=GUN_RUN_S*(arms[1].a.getWorldPosition(rgS).distanceTo(arms[1].f.getWorldPosition(rgP))+arms[1].f.getWorldPosition(rgS).distanceTo(bn.RH.getWorldPosition(rgP)));
+        rgM.makeBasis(rgX,rgY,rgZ);gun.quaternion.setFromRotationMatrix(rgM);
+        rgS.copy(ikp0).lerp(ikp1,0.6).addScaledVector(rgX,-GUN_RUN_OFF*sz).addScaledVector(rgY,-GUN_RUN_UP*sz);
+        gun.position.copy(rgS);gun.scale.setScalar(sz);gun.visible=b.ikR>0.3;
+      }
+    };
+  })();
   window.__glad={info:()=>({modoGlad,gRound,sc,fase:R.fase,bots:bots.length,barreira:!!PB,mundo:'glad'}),iniciar:()=>gladIniciar()};
 
 })();
@@ -3934,88 +4040,59 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
 
 </script>
 <script>
-// ===== Jogador remoto: envia o seu estado e desenha o outro jogador (personagem + animação) na mesma partida =====
+// ===== ONLINE: tudo que aparece pra você aparece pro outro jogador (pose, animações, arma, tiros, dano, gelo, skins) =====
 (function(){
   const net = window.BX_NET; if(!net) return;
-  let remote = null, loading = false, lastRx = 0, lastId = null;
-  const tgt = {x:0,y:0,z:0,r:0,rx:0}, SEND_MS = 66;
+  // REGISTRO de personagens e skins de gelo. Cada jogador escolhe uma (BX_SEL) e o ID viaja junto com o estado.
+  // Como todo mundo carrega o mesmo arquivo, o outro jogador vê a sua skin mesmo que não a tenha equipada.
+  // Para adicionar um personagem novo: ponha os dados num <script id="meu_char_data"> e registre: BX_REG.chars.meuchar='meu_char_data'; depois BX_SEL.char='meuchar'.
+  // Skin de gelo nova: BX_REG.ice.minhaskin = <THREE.Group do gelo, já escalado>; BX_SEL.ice='minhaskin'.
+  window.BX_REG = window.BX_REG || { chars:{ default:'chardata' }, ice:{} };
+  window.BX_SEL = window.BX_SEL || { char:'default', ice:'default' };
 
-  function emPartida(){ return !!(net.room && net.peers && net.peers.length && window.__gladOn); }
+  const on = () => !!(net.room && net.peers && net.peers.length && window.__gladOn && document.body.classList.contains('teste'));
+  const r3 = v => Math.round(v*1000)/1000;
+  window.__bxIceSend = (k,d) => { if(on()) net.sendState(Object.assign({k:k},d)); };
 
   // ---------- ENVIAR meu estado (~15x/s) ----------
   setInterval(function(){
     try{
-      if(!emPartida()) return;
-      const a = (typeof cActs!=='undefined' && cActs[cCur]) ? cActs[cCur].timeScale : 1;
-      net.sendState({ x:+pj.position.x.toFixed(3), y:+pj.position.y.toFixed(3), z:+pj.position.z.toFixed(3),
-                      r:+pj.rotation.y.toFixed(3), rx:+pj.rotation.x.toFixed(3), a:cCur||'idle', ts:a, c:window.__rMorto?1:0 });
+      if(!on()) return;
+      const acts = [];
+      if(cMixer && cMixer._actions) cMixer._actions.forEach(a=>{
+        if(!a.isScheduled()) return; const w=a.getEffectiveWeight(); if(w<0.02) return;
+        acts.push([a.getClip().name, Math.round(w*100)/100, Math.round(a.time*100)/100, a.timeScale, a.loop===THREE.LoopOnce?1:0]);
+      });
+      net.sendState({ k:'p', x:r3(pj.position.x), y:r3(pj.position.y), z:r3(pj.position.z), r:r3(pj.rotation.y), q:r3(pj.rotation.x),
+        a:acts, ap:r3(cAimP), gk:window.__gunKeyNow||'xm8', e:window.__bxEstP?window.__bxEstP():0, hp:hp,
+        ch:window.BX_SEL.char,
+        f:{ cur:cCur, pu:cPunchUp>0?1:0, ru:cRelUp>0?1:0, jt:cJumpT>0?1:0, cr:cCrouch?1:0, ju:cJUName||'' } });
     }catch(e){}
-  }, SEND_MS);
+  }, 66);
 
-  // ---------- criar o modelo do outro jogador ----------
-  async function criaRemoto(){
-    if(remote || loading) return; loading = true;
-    try{
-      const buf = await (await cLer('chardata')).arrayBuffer();
-      const g = await new Promise((ok,er)=>new THREE.GLTFLoader().parse(buf,'',ok,er));
-      const m = g.scene;
-      const hub = m.getObjectByName('soco_ff_esquerdo'); if(hub) hub.position.set(0,0,0);
-      m.updateMatrixWorld(true);
-      const bx = new THREE.Box3().setFromObject(m), h = bx.max.y-bx.min.y;
-      m.scale.setScalar((h>0.3&&h<5) ? C_ALTURA/h : C_ALTURA/0.99);
-      m.traverse(o=>{ if(o.isMesh){ o.frustumCulled=false; o.castShadow=false; o.receiveShadow=false; } });
-      const w = new THREE.Group(); w.add(m); m.rotation.y = Math.PI;
-      w.position.set(tgt.x,tgt.y,tgt.z); w.rotation.y = tgt.r;
-      scene.add(w);
-      const mix = new THREE.AnimationMixer(m);
-      remote = { g:w, mix:mix, cur:'', act:null };
-      tocar('idleArmed');
-    }catch(e){ console.error('jogador remoto:', e); }
-    loading = false;
-  }
-  function tocar(nome, ts){
-    if(!remote) return;
-    let cl = cClips[nome] || cClips[nome.replace(/_low$/,'')] || cClips.idleArmed || cClips.idle; if(!cl) return;
-    if(remote.cur === cl.name){ if(remote.act && ts) remote.act.timeScale = ts; return; }
-    const a = remote.mix.clipAction(cl); a.reset(); a.enabled = true; a.setEffectiveWeight(1); a.timeScale = ts||1; a.play();
-    if(remote.act && remote.act!==a) remote.act.crossFadeTo(a, 0.15, false);
-    remote.act = a; remote.cur = cl.name;
-  }
-  function removeRemoto(){
-    if(!remote) return;
-    scene.remove(remote.g);
-    remote.g.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); if(o.material&&o.material.dispose) o.material.dispose(); } });
-    remote = null; lastRx = 0;
-  }
-
-  // ---------- RECEBER o estado do outro jogador ----------
-  net.onState = function(from, d){
-    if(!d || typeof d.x!=='number') return;
-    lastId = from; lastRx = performance.now();
-    tgt.x=d.x; tgt.y=d.y; tgt.z=d.z; tgt.r=d.r||0; tgt.rx=d.rx||0;
-    if(!remote){ criaRemoto(); return; }
-    if(!remote.g.visible) remote.g.visible = true;
-    tocar(d.a||'idleArmed', d.ts||1);
-    remote.morto = !!d.c;
+  // ---------- meus tiros: o outro jogador vê o rastro e o clarão saindo do cano ----------
+  const _tb = tracerBala;
+  window.tracerBala = function(a,b,inimigo,impacto){
+    try{ if(inimigo===false && on()) net.sendState({k:'shot', o:[r3(a.x),r3(a.y),r3(a.z)], p:[r3(b.x),r3(b.y),r3(b.z)], i:impacto?1:0}); }catch(e){}
+    return _tb(a,b,inimigo,impacto);
   };
-  net.onPeerLeft = function(){ removeRemoto(); };
 
-  // ---------- atualizar todo frame (suaviza posição, gira, anima) ----------
-  let t0 = performance.now();
-  (function loop(){
-    requestAnimationFrame(loop);
-    const n = performance.now(), dt = Math.min(0.1,(n-t0)/1000); t0 = n;
-    if(!remote) return;
-    if(!emPartida() || (lastRx && n-lastRx>5000)){ removeRemoto(); return; } // saiu da partida ou parou de enviar
-    const k = Math.min(1, dt*14), p = remote.g.position;
-    if(p.distanceTo(new THREE.Vector3(tgt.x,tgt.y,tgt.z))>8) p.set(tgt.x,tgt.y,tgt.z); // respawn/teleporte: pula direto
-    else { p.x += (tgt.x-p.x)*k; p.y += (tgt.y-p.y)*k; p.z += (tgt.z-p.z)*k; }
-    let dr = tgt.r - remote.g.rotation.y; dr = Math.atan2(Math.sin(dr),Math.cos(dr));
-    remote.g.rotation.y += dr*k;
-    remote.g.rotation.x = tgt.rx;
-    remote.mix.update(dt);
-  })();
-  window.BX_REMOTE = { get on(){ return !!remote; }, remove: removeRemoto };
+  // ---------- RECEBER ----------
+  net.onState = function(from, d){
+    if(!d) return;
+    switch(d.k){
+      case 'p': d.rt = performance.now(); window.__bxLast = d; break;
+      case 'shot': if(d.o&&d.p) _tb(new THREE.Vector3(d.o[0],d.o[1],d.o[2]), new THREE.Vector3(d.p[0],d.p[1],d.p[2]), true, !!d.i); break;
+      case 'hit':  // o outro jogador me acertou: eu aplico o dano em mim
+        if(typeof hpDano==='function'){ hpDano(+d.d||0);
+          try{ const z=document.getElementById('zvig'); if(z){ z.style.opacity=1; setTimeout(()=>{ if(!window.zOutside) z.style.opacity=0; },160); } }catch(e){} }
+        break;
+      case 'ice': window.__iceRemote && window.__iceRemote(d); break;
+      case 'iceHit': window.__iceRemoteHit && window.__iceRemoteHit(d.id); break;
+      case 'iceDel': window.__iceRemoteDel && window.__iceRemoteDel(d.id); break;
+    }
+  };
+  net.onPeerLeft = function(){ window.__bxLast = null; window.__bxRemoveRemote && window.__bxRemoveRemote(); };
 })();
 </script>
 </body></html>
