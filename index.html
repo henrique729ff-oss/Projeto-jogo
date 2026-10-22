@@ -3450,7 +3450,12 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       await carregaGlad();
       modoGlad=true;window.__gladOn=true;usaMundo(true);if(window.__iceAPI)window.__iceAPI.clear(); // a cada rodada os gelos somem (igual ao index)
       // arena e lado de cada rodada: igual ao index (a cada rodada os dois trocam de spawn)
-      const a=GL_AR[GL_ORD[gRound%GL_ORD.length]].s,e=a[gRound%2],o=a[(gRound+1)%2];
+      const a=GL_AR[GL_ORD[gRound%GL_ORD.length]].s;
+      let e=a[gRound%2],o=a[(gRound+1)%2];
+      // No online, os dois jogadores escolhem o mesmo lado de forma determinística.
+      const bxNet=window.BX_NET;
+      const bxOnline=!!(bxNet&&bxNet.room&&Array.isArray(bxNet.peers)&&bxNet.peers.length>0);
+      if(bxOnline && String(bxNet.id)>String(bxNet.peers[0].id)){const tmp=e;e=o;o=tmp;}
       removerNPC();R.fase=null;window.__rFase=null;window.__rMorto=false;bxReset();
       zona.on=false;zona.set=false;zonaMalha();zonaUi();$('zvig').style.opacity=0;zOutside=false;zAcc=0; // sem zona no Gladiadores
       mode="walk";$("mode").textContent="🚶 Andar";$("speed").value=speeds.walk;$("sv").textContent=speeds.walk;$("ud").style.opacity=.35;
@@ -3459,7 +3464,8 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       hpSet(HPMAX);
       PL_BARRA=BAR_SEG=gRound===0?15:10; // barreira: 15 s na 1ª rodada, 10 s nas outras (igual ao index)
       iniciaBarreira(e[0],e[1],e[2],yaw);
-      await criaBots({s1:[e[0],e[1],e[2]],s2:[o[0],o[1],o[2]]},1);
+      // Treino/offline pode usar NPCs; em partida online, só jogadores reais.
+      if(!bxOnline) await criaBots({s1:[e[0],e[1],e[2]],s2:[o[0],o[1],o[2]]},1);
       rStart(GL_AREA,gRound);
       msg('Gladiadores · Partida '+nPartida+' · Rodada '+(gRound+1)+' · placar '+sc.eu+' x '+sc.npc);
     }catch(err){console.error(err);msg('Erro ao iniciar Gladiadores: '+(err&&err.message?err.message:err))}
@@ -3804,7 +3810,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
 </script>
 
 <script src="/config.js"></script><script>
-// Camada online do Bermuda Explorer: login Google, jogadores online, fila de partida (30 s) e envio/recebimento de estado.
+// Camada online do Bermuda Explorer: login, fila de jogadores reais e envio/recebimento de estado.
 (function () {
   const CFG = window.BX_CONFIG || {};
   const net = window.BX_NET = {
@@ -3889,7 +3895,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     el.lastChild.textContent = on ? 'online' : 'offline';
   }, 1000);
 
-  // ---------- fila de partida: espera até 30 s por outro jogador; senão cai com bots ----------
+  // ---------- fila: espera por outro jogador real; não cria bots por tempo esgotado ----------
   let searchCb = null, searchEl = null, searchIv = null;
   function showSearch(sec) {
     hideSearch();
