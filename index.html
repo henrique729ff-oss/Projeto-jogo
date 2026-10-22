@@ -3933,6 +3933,91 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
 })();
 
 </script>
+<script>
+// ===== Jogador remoto: envia o seu estado e desenha o outro jogador (personagem + animação) na mesma partida =====
+(function(){
+  const net = window.BX_NET; if(!net) return;
+  let remote = null, loading = false, lastRx = 0, lastId = null;
+  const tgt = {x:0,y:0,z:0,r:0,rx:0}, SEND_MS = 66;
+
+  function emPartida(){ return !!(net.room && net.peers && net.peers.length && window.__gladOn); }
+
+  // ---------- ENVIAR meu estado (~15x/s) ----------
+  setInterval(function(){
+    try{
+      if(!emPartida()) return;
+      const a = (typeof cActs!=='undefined' && cActs[cCur]) ? cActs[cCur].timeScale : 1;
+      net.sendState({ x:+pj.position.x.toFixed(3), y:+pj.position.y.toFixed(3), z:+pj.position.z.toFixed(3),
+                      r:+pj.rotation.y.toFixed(3), rx:+pj.rotation.x.toFixed(3), a:cCur||'idle', ts:a, c:window.__rMorto?1:0 });
+    }catch(e){}
+  }, SEND_MS);
+
+  // ---------- criar o modelo do outro jogador ----------
+  async function criaRemoto(){
+    if(remote || loading) return; loading = true;
+    try{
+      const buf = await (await cLer('chardata')).arrayBuffer();
+      const g = await new Promise((ok,er)=>new THREE.GLTFLoader().parse(buf,'',ok,er));
+      const m = g.scene;
+      const hub = m.getObjectByName('soco_ff_esquerdo'); if(hub) hub.position.set(0,0,0);
+      m.updateMatrixWorld(true);
+      const bx = new THREE.Box3().setFromObject(m), h = bx.max.y-bx.min.y;
+      m.scale.setScalar((h>0.3&&h<5) ? C_ALTURA/h : C_ALTURA/0.99);
+      m.traverse(o=>{ if(o.isMesh){ o.frustumCulled=false; o.castShadow=false; o.receiveShadow=false; } });
+      const w = new THREE.Group(); w.add(m); m.rotation.y = Math.PI;
+      w.position.set(tgt.x,tgt.y,tgt.z); w.rotation.y = tgt.r;
+      scene.add(w);
+      const mix = new THREE.AnimationMixer(m);
+      remote = { g:w, mix:mix, cur:'', act:null };
+      tocar('idleArmed');
+    }catch(e){ console.error('jogador remoto:', e); }
+    loading = false;
+  }
+  function tocar(nome, ts){
+    if(!remote) return;
+    let cl = cClips[nome] || cClips[nome.replace(/_low$/,'')] || cClips.idleArmed || cClips.idle; if(!cl) return;
+    if(remote.cur === cl.name){ if(remote.act && ts) remote.act.timeScale = ts; return; }
+    const a = remote.mix.clipAction(cl); a.reset(); a.enabled = true; a.setEffectiveWeight(1); a.timeScale = ts||1; a.play();
+    if(remote.act && remote.act!==a) remote.act.crossFadeTo(a, 0.15, false);
+    remote.act = a; remote.cur = cl.name;
+  }
+  function removeRemoto(){
+    if(!remote) return;
+    scene.remove(remote.g);
+    remote.g.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); if(o.material&&o.material.dispose) o.material.dispose(); } });
+    remote = null; lastRx = 0;
+  }
+
+  // ---------- RECEBER o estado do outro jogador ----------
+  net.onState = function(from, d){
+    if(!d || typeof d.x!=='number') return;
+    lastId = from; lastRx = performance.now();
+    tgt.x=d.x; tgt.y=d.y; tgt.z=d.z; tgt.r=d.r||0; tgt.rx=d.rx||0;
+    if(!remote){ criaRemoto(); return; }
+    if(!remote.g.visible) remote.g.visible = true;
+    tocar(d.a||'idleArmed', d.ts||1);
+    remote.morto = !!d.c;
+  };
+  net.onPeerLeft = function(){ removeRemoto(); };
+
+  // ---------- atualizar todo frame (suaviza posição, gira, anima) ----------
+  let t0 = performance.now();
+  (function loop(){
+    requestAnimationFrame(loop);
+    const n = performance.now(), dt = Math.min(0.1,(n-t0)/1000); t0 = n;
+    if(!remote) return;
+    if(!emPartida() || (lastRx && n-lastRx>5000)){ removeRemoto(); return; } // saiu da partida ou parou de enviar
+    const k = Math.min(1, dt*14), p = remote.g.position;
+    if(p.distanceTo(new THREE.Vector3(tgt.x,tgt.y,tgt.z))>8) p.set(tgt.x,tgt.y,tgt.z); // respawn/teleporte: pula direto
+    else { p.x += (tgt.x-p.x)*k; p.y += (tgt.y-p.y)*k; p.z += (tgt.z-p.z)*k; }
+    let dr = tgt.r - remote.g.rotation.y; dr = Math.atan2(Math.sin(dr),Math.cos(dr));
+    remote.g.rotation.y += dr*k;
+    remote.g.rotation.x = tgt.rx;
+    remote.mix.update(dt);
+  })();
+  window.BX_REMOTE = { get on(){ return !!remote; }, remove: removeRemoto };
+})();
+</script>
 </body></html>
 <style id="hudEdCss">
 #hudSet,#hudEd{position:fixed;inset:0;z-index:200000;display:none}
