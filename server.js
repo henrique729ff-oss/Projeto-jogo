@@ -13,6 +13,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const ALLOW_GUEST = process.env.ALLOW_GUEST === '1';
 const QUEUE_MS = (+process.env.QUEUE_SECONDS || 60) * 1000; // tempo mostrado na busca; não inicia com bots
 const MAX_ROOM = 2;   // 1 contra 1
+const MODES = new Set(['glad', 'conf', 'contra']);   // cada modo tem a sua fila (Confrontos não mistura com Gladiadores)
 const oauth = new OAuth2Client(CLIENT_ID);
 
 // ---------- dados dos jogadores ----------
@@ -151,8 +152,9 @@ function enqueue(c) {
   );
   queue = waiting;
 
-  if (queue.length >= MAX_ROOM) {
-    return startMatch(queue.slice(0, MAX_ROOM), false);
+  const same = queue.filter(q => q.c.mode === c.mode);   // só pareia quem procura o mesmo modo
+  if (same.length >= MAX_ROOM) {
+    return startMatch(same.slice(0, MAX_ROOM), false);
   }
 
   // Mantém a busca aberta indefinidamente. O valor de 60 s é apenas para a interface;
@@ -199,10 +201,19 @@ wss.on('connection', ws => {
       const n = String(m.nick || '').trim().slice(0, 20); if (!n) return;
       c.nick = n; users[c.sub].nick = n; touch(c.sub); scheduleBroadcast();
     } else if (m.t === 'players') { send(ws, { t: 'players', list: [...online.values()].filter(o => o !== c).map(pub) });
-    } else if (m.t === 'queue') { if (!c.nick) c.nick = 'Jogador'; enqueue(c);
+    } else if (m.t === 'queue') { if (!c.nick) c.nick = 'Jogador'; c.mode = MODES.has(m.mode) ? m.mode : 'glad'; enqueue(c);
     } else if (m.t === 'cancel') { dequeue(c);
     } else if (m.t === 'leave') { leaveRoom(c);
-    } else if (m.t === 'invite') { const o = online.get(String(m.to)); if (o) send(o.ws, { t: 'invite', from: pub(c) });
+    } else if (m.t === 'invite') {   // pedido de amizade ('friend') ou chamada para X1 ('x1')
+      const kind = m.kind === 'friend' ? 'friend' : 'x1';
+      const o = online.get(String(m.to)); if (!o || o === c) return;
+      if (kind === 'x1' && o.room) return send(ws, { t: 'inviteReply', kind, ok: false, msg: 'Está em partida', from: pub(o) });
+      send(o.ws, { t: 'invite', kind, from: pub(c) });
+    } else if (m.t === 'inviteReply') {   // resposta de quem recebeu: repassa para quem convidou
+      const kind = m.kind === 'friend' ? 'friend' : 'x1';
+      const o = online.get(String(m.to)); if (!o || o === c) return;
+      send(o.ws, { t: 'inviteReply', kind, ok: !!m.ok, msg: String(m.msg || '').slice(0, 80), from: pub(c) });
+      if (kind === 'x1' && m.ok && !c.room && !o.room) { dequeue(c); dequeue(o); startMatch([{ c: o }, { c }], false); }   // X1 aceito: cria a partida dos dois
     } else if (m.t === 'st' && c.room) {         // estado do personagem (posição, animação, skin...) repassado aos colegas da sala
       const set = rooms.get(c.room); if (!set) return;
       const out = JSON.stringify({ t: 'st', from: c.id, d: m.d });
