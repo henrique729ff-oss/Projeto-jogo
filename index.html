@@ -3535,7 +3535,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     const offA=tam===1?[0]:[-1.5,1.5,2.5,-2.5],offB=tam===1?[0]:[-3,-1,1,3],jobs=[]; // 1x1 (Gladiadores): o adversário nasce exatamente no spawn do mapa
     for(let i=0;i<nA;i++)jobs.push([ 'a',[d.s1[0]+rx*offA[i],d.s1[1],d.s1[2]+rz*offA[i]]]);
     for(let i=0;i<nB;i++)jobs.push(['b',[d.s2[0]+rx*offB[i],d.s2[1],d.s2[2]+rz*offB[i]]]);
-    const gs=await Promise.all(jobs.map(j=>criarNPC(j[1])));
+    const sk=window.__contraSkin?((window.BX_REG&&window.BX_REG.chars&&window.BX_REG.chars[window.BX_SEL&&window.BX_SEL.char])||'chardata'):undefined;const gs=await Promise.all(jobs.map(j=>criarNPC(j[1],sk)));
     gs.forEach((g,i)=>{
       const t=jobs[i][0];
       
@@ -3676,7 +3676,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     if(sc.eu>=GL_OBJ||sc.npc>=GL_OBJ)gladIniciar();else{gRound++;gladRodada()}
   }
   function sairLobby(){ // fim da partida: limpa tudo e volta para o lobby
-    window.__humanos={a:1,b:0};window.__contraRemoto=false;
+    window.__humanos={a:1,b:0};window.__contraRemoto=false;window.__contraSkin=false;
     const tr=f=>{try{f()}catch(e){console.error('sairLobby:',e)}};
     tr(()=>bxReset());tr(()=>{if(window.__iceAPI)window.__iceAPI.clear()});
     tr(()=>removerNPC());R.fase=null;window.__rFase=null;window.__rMorto=false;busy=false;
@@ -3737,7 +3737,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       if(ghost){ghost.visible=on&&holding&&!!proto;if(ghost.visible){ghost.position.copy(icePos());ghost.rotation.y=yaw+Math.PI}}
       if(!on&&walls.length&&!modoGlad)clear()})();
   })();
-  function gladIniciar(){window.__humanos={a:1,b:0};window.__contraRemoto=false;gRound=0;sc={eu:0,npc:0};nPartida++;partidas=null;gladRodada()}
+  function gladIniciar(){window.__humanos={a:1,b:0};window.__contraRemoto=false;window.__contraSkin=false;gRound=0;sc={eu:0,npc:0};nPartida++;partidas=null;gladRodada()}
   async function gladRodada(){
     if(busy)return;
     if(!world||!cModel){msg('Aguarde o mapa e o personagem carregarem…');return}
@@ -3868,7 +3868,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     };
   })();
   // ===== Sala de espera do Contra Squad: com 8 jogadores a partida começa na hora (4 x 4); senão espera o tempo e NPCs completam os squads =====
-  const ESPERA_CONTRA=19,MAX_CONTRA=8; // segundos de espera e jogadores para começar na hora
+  const CORTE_CONTRA=10,MAX_CONTRA=8; // segundos de espera e jogadores para começar na hora
   let salaOn=false;
   function salaContra(){
     if(salaOn||busy)return;salaOn=true;
@@ -3882,15 +3882,15 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     entraBermuda().then(()=>{mapOk=true}).catch(e=>{mapErr=e;console.error(e)}); // o mapa carrega enquanto a sala espera
     const fecha=()=>{clearInterval(iv);el.remove();salaOn=false};
     iv=setInterval(()=>{
-      const h=reais(),s=(performance.now()-t0)/1000,cheia=h>=MAX_CONTRA,fim=cheia||s>=ESPERA_CONTRA;
+      const h=reais(),s=(performance.now()-t0)/1000,cheia=h>=MAX_CONTRA,fim=cheia||s>=CORTE_CONTRA;
       g('scN').textContent=h+' / '+MAX_CONTRA+' jogadores';
-      g('scT').textContent=cheia?'Sala cheia!':'Começa em '+Math.max(0,Math.ceil(ESPERA_CONTRA-s))+' s';
-      g('scM').textContent=mapErr?'Erro ao carregar o mapa':(!mapOk?'Carregando o mapa do Bermuda…':(cheia?'4 contra 4':'NPCs completam os squads'));
+      g('scT').textContent=Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')+(cheia?' · sala cheia!':''); // cronômetro que só sobe
+      g('scM').textContent=mapErr?'Erro ao carregar o mapa':(!mapOk?'Carregando o mapa do Bermuda…':(cheia?'4 contra 4':(s<CORTE_CONTRA?'Com 8 jogadores antes de 0:10 começa na hora; senão NPCs completam os squads':'NPCs completam os squads')));
       if(cancel||mapErr){fecha();if(mapErr)msg('Erro ao carregar o mapa: '+(mapErr.message||mapErr));if(window.__ffLobby)window.__ffLobby();return}
       if(fim&&mapOk){
         const p=peersN();fecha();
         window.__humanos=cheia?{a:4,b:4}:{a:1,b:Math.min(1,p)}; // lugares sem jogador viram NPC (criaBots completa o resto)
-        window.__contraRemoto=p>0;
+        window.__contraRemoto=p>0;window.__contraSkin=true; // NPCs usam a skin do jogador
         partidas=null;contraStart();
       }
     },250);
@@ -4428,7 +4428,8 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     if(starting)return;
     if(window.BX_NET&&!window.BX_NET.pass){window.BX_NET.search(()=>{window.BX_NET.pass=true;$('ffStart').onclick();window.BX_NET.pass=false});return}
     starting=true;
-    show('splash');
+    const semXadrez=!!(window.__ffModo&&window.__ffModo()==='contra'); // Contra Squad: pula a tela do xadrez e vai direto pro carregamento
+    if(!semXadrez)show('splash');
     setTimeout(()=>{
     loadMsg='Carregando partida…';shown=0;fill.style.transition=head.style.transition='none';setBar(0);void fill.offsetWidth;fill.style.transition=head.style.transition='';
     show('load');
@@ -4440,7 +4441,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       p=Math.min(95,p+(95-p)*0.06);setBar(f?100:p);
       if((f&&el>900)||el>(contra?240000:30000)||!window.__glad){clearInterval(iv);setBar(100);setTimeout(()=>{root.classList.add('out');setTimeout(()=>{root.style.display='none';starting=false},520)},350)}
     },160);
-    },4700);
+    },semXadrez?0:4700);
   };
 
   // ---------- MODOS: Gladiadores FF (padrão) / Contra Squad / Confrontos ----------
