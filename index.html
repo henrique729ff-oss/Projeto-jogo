@@ -4384,13 +4384,17 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       me(){return {id:uid,nick:getName()||'Jogador'}},
       players(){return PL},
       byId(i){return PL.find(p=>p.id===i)},
-      friends(){return ls.get('bx_friends2',[]).map(i=>FR.byId(i)).filter(Boolean)},
+      friends(){return ls.get('bx_friends2',[]).map(i=>FR.byId(i)||FR.info(i)).filter(Boolean)},
+      info(i){const o=ls.get('bx_friends_info',{})[i];return o?{id:i,nick:o.nick||'Jogador',st:'offline',mut:0}:null},
       isFriend(i){return ls.get('bx_friends2',[]).indexOf(i)>=0},
-      add(i){const f=ls.get('bx_friends2',[]);if(f.indexOf(i)<0){f.push(i);ls.set('bx_friends2',f)}},
+      add(i,nick){const f=ls.get('bx_friends2',[]);if(f.indexOf(i)<0){f.push(i);ls.set('bx_friends2',f)}if(nick){const o=ls.get('bx_friends_info',{});o[i]={nick:nick};ls.set('bx_friends_info',o)}},
       search(q){q=q.trim().toLowerCase();if(!q)return PL.slice();return PL.filter(p=>p.nick.toLowerCase().indexOf(q)>=0||p.id.indexOf(q)===0)}
     };
     // deixa o status "vivo": de tempos em tempos um jogador entra ou sai
-    window.BXFR={PL:PL,me:()=>FR.me(),setUid:v=>{uid=v;ls.set('bx_uid',v)},redraw:()=>{try{nrDraw()}catch(e){}try{if(FRo.classList.contains('on'))drawFr();if(ADo.classList.contains('on')&&!ADq)drawAd()}catch(e){}}}; // preenchido por online.js
+    window.BXFR={PL:PL,me:()=>FR.me(),setUid:v=>{uid=v;ls.set('bx_uid',v)},redraw:()=>{try{nrDraw()}catch(e){}try{if(FRo.classList.contains('on'))drawFr();if(ADo.classList.contains('on')&&!ADq)drawAd()}catch(e){}}};
+    window.BXFR.remember=()=>{const f=ls.get('bx_friends2',[]),o=ls.get('bx_friends_info',{});let ch=false;PL.forEach(p=>{if(f.indexOf(p.id)>=0&&(!o[p.id]||o[p.id].nick!==p.nick)){o[p.id]={nick:p.nick};ch=true}});if(ch)ls.set('bx_friends_info',o)};
+    window.BXFR.setFriends=list=>{const f=ls.get('bx_friends2',[]),o=ls.get('bx_friends_info',{});(list||[]).forEach(x=>{if(!x||!x.id)return;if(f.indexOf(x.id)<0)f.push(x.id);o[x.id]={nick:x.nick||'Jogador'}});ls.set('bx_friends2',f);ls.set('bx_friends_info',o);try{window.BXFR.redraw()}catch(e){}};
+    window.BXFR.localFriends=()=>ls.get('bx_friends2',[]).slice(0,200); // preenchido por online.js
     // ----- visual -----
     const hue=s=>hash(s)%360;
     const sty=p=>{const b=document.querySelector('#ffProf .ffBar'),u=b&&b.src?'url("'+b.src+'") center/cover no-repeat':'linear-gradient(115deg,#3a3a3e,#6a6a70)';return '--bn:'+u+';--av:linear-gradient(135deg,#26231a,#14120c)'}; // banner original (cinza) do jogador
@@ -4441,13 +4445,12 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     function drawFr(){
       const L=$('fnFrList'),q=$('fnFrIn').value.trim().toLowerCase();L.textContent='';
       let a=FR.friends();const n0=a.length;
-      a=a.filter(p=>p.st!=='offline'); // só quem está online
-      if(q)a=a.filter(p=>p.nick.toLowerCase().indexOf(q)>=0);
+            if(q)a=a.filter(p=>p.nick.toLowerCase().indexOf(q)>=0);
       a.sort((x,y)=>(x.st==='offline')-(y.st==='offline'));
       if(!a.length){L.appendChild(mk(n0?'<div class="fnEmpty"><b>Nenhum amigo online</b>Só amigos online aparecem aqui.</div>':'<div class="fnEmpty"><b>Nenhum amigo online</b>Toque no ícone de pessoas no lobby para adicionar.</div>'));return}
       a.forEach(p=>{
-        const on=true,r=mk('<div class="fnRow"><div class="fnAv">'+ini(p)+'</div><i class="fnDot"></i><div class="fnBn"><div class="fnNm">'+esc(p.nick)+'<small>'+(p.st==='playing'?'jogando':'on-line')+'</small></div>'+rank(p)+'</div><button class="fnPlus" aria-label="Convidar">'+IC.plus+'</button></div>');
-        r.style.cssText=sty(p);
+        const on=true,r=mk('<div class="fnRow"><div class="fnAv">'+ini(p)+'</div><i class="fnDot"></i><div class="fnBn"><div class="fnNm">'+esc(p.nick)+'<small>'+(p.st==='playing'?'jogando':p.st==='offline'?'offline':'on-line')+'</small></div>'+rank(p)+'</div><button class="fnPlus" aria-label="Convidar">'+IC.plus+'</button></div>');
+        r.style.cssText=sty(p);if(p.st==='offline'){r.style.opacity='.55';const d=r.querySelector('.fnDot');if(d)d.style.background='#8a8a8a'}
         const b=r.querySelector('.fnPlus');if(b)b.onclick=()=>sendInvite(p,'x1');
         L.appendChild(r);
       });
@@ -4496,6 +4499,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
     function sendInvite(p,kind){
       const n=net();
       if(kind==='x1'&&!FR.isFriend(p.id)){toast('Só dá pra chamar para o X1 quem é seu amigo');return false}
+      if(kind==='x1'&&!FR.byId(p.id)){toast((p.nick||'Seu amigo')+' está offline');return false}
       if(!n||!n.ready||!n.sendRaw||!n.sendRaw({t:'invite',kind:kind,to:p.id})){toast('Sem conexão com o servidor');return false}
       toast(kind==='friend'?'Pedido de amizade enviado para '+p.nick:'Convite para X1 enviado para '+p.nick);return true;
     }
@@ -4521,7 +4525,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       if(!invCur)return;const m=invCur;invCur=null;clearTimeout(invTm);clearInterval(invIv);inv.classList.remove('on');
       if(!ok&&ivQ('.ivBk input').checked)ivBlk[m.from.id]=Date.now()+300000;
       invReply(m,ok,ok?'':ivQ('.ivQf').textContent);
-      if(ok&&m.kind==='friend'){FR.add(m.from.id);toast(m.from.nick+' agora é seu amigo');try{BXFR.redraw()}catch(e){}}
+      if(ok&&m.kind==='friend'){FR.add(m.from.id,m.from.nick);toast(m.from.nick+' agora é seu amigo');try{BXFR.redraw()}catch(e){}}
       setTimeout(invShow,350);
     }
     ivQ('.ok').onclick=()=>invEnd(true);
@@ -4531,7 +4535,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       if(!m||!m.from||!m.from.id)return;
       if(m.t==='inviteReply'){ // resposta ao convite que EU mandei
         const nm=m.from.nick||'Jogador';
-        if(m.kind==='friend'){if(m.ok){FR.add(m.from.id);toast(nm+' aceitou seu pedido de amizade');try{BXFR.redraw()}catch(e){}}else toast(nm+' recusou o pedido')}
+        if(m.kind==='friend'){if(m.ok){FR.add(m.from.id,nm);toast(nm+' aceitou seu pedido de amizade');try{BXFR.redraw()}catch(e){}}else toast(nm+' recusou o pedido')}
         else toast(m.ok?nm+' aceitou o X1 — iniciando…':nm+' recusou o convite');
         return;
       }
@@ -4546,7 +4550,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
 
     // ----- menu de amizades (painel do lobby): abas · filtro · lista · código de equipe -----
     const nrF=$('nrFr'),nrL=$('nrList'),nrS=$('nrSrch'),nrI=$('nrSrchIn'),nrStrip=$('nrStrip');
-    const NRFLT=[['Todos os amigos',''],['Só on-line','online'],['Só jogando','playing']];
+    const NRFLT=[['Todos os amigos',''],['Só on-line','online'],['Só jogando','playing'],['Só offline','offline']];
     let nrTab=0,nrFlt=0;
     function nrFriends(){
       let a=FR.friends();const q=nrI.value.trim().toLowerCase(),f=NRFLT[nrFlt][1];
@@ -4563,15 +4567,15 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
           nrL.appendChild(mk(all.length?'<div class="nrEmpty"><b>Nenhum amigo encontrado</b>Mude o filtro ou a pesquisa.</div>':'<div class="nrEmpty"><b>Nenhum amigo online</b>Toque no ícone de pessoas no topo para adicionar.</div>'));
         }
         a.forEach(p=>{
-          const w=mk('<div class="nrRowW"><div class="nrRow"><div class="nrAv">'+esc(ini(p))+'<i class="nrDot"></i></div><div class="nrNm"><b>'+esc(p.nick)+'</b><span>'+(p.st==='playing'?'Jogando':'On-line')+'</span></div></div><button class="nrAct" aria-label="Convidar">'+IC.plus+'</button></div>');
-          w.querySelector('.nrRow').style.cssText=sty(p);
+          const w=mk('<div class="nrRowW"><div class="nrRow"><div class="nrAv">'+esc(ini(p))+'<i class="nrDot"></i></div><div class="nrNm"><b>'+esc(p.nick)+'</b><span>'+(p.st==='playing'?'Jogando':p.st==='offline'?'Offline':'On-line')+'</span></div></div><button class="nrAct" aria-label="Convidar">'+IC.plus+'</button></div>');
+          w.querySelector('.nrRow').style.cssText=sty(p);if(p.st==='offline')w.style.opacity='.55';
           w.querySelector('.nrAct').onclick=()=>sendInvite(p,'x1');
           nrL.appendChild(w);
         });
       }
       // faixa recolhida: avatares dos amigos on-line
       nrStrip.textContent='';
-      FR.friends().slice(0,5).forEach(p=>nrStrip.appendChild(mk('<span class="nrSa"><i>'+esc(ini(p))+'</i><span>'+esc(p.nick)+'</span></span>')));
+      FR.friends().filter(p=>p.st!=='offline').slice(0,5).forEach(p=>nrStrip.appendChild(mk('<span class="nrSa"><i>'+esc(ini(p))+'</i><span>'+esc(p.nick)+'</span></span>')));
     }
     function nrSetTab(t){nrTab=t;if(t!==0){nrS.classList.remove('on')}nrDraw()}
     nrF.querySelectorAll('.nrTab0,.nrTab1,.nrTab2').forEach(b=>b.onclick=()=>nrSetTab(+b.dataset.tab));
@@ -4883,6 +4887,7 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       if (m.t === 'authed') {
         net.ready = true; net.id = m.id;
         if (window.BXFR) { window.BXFR.setUid(m.id); sendNick(); }
+        try { if (window.BXFR && window.BXFR.localFriends) ws.send(JSON.stringify({ t: 'friendsSync', ids: window.BXFR.localFriends() })); } catch (e) {}
         if (wantCb) { const cb = wantCb; wantCb = null; cb(); }
       } else if (m.t === 'profile') {
         net.profile = m;
@@ -4892,7 +4897,9 @@ body.teste #hud,body.teste #luz,body.teste #mar,body.teste #grama,body.teste #so
       else if (m.t === 'players' && window.BXFR) {
         const PL = window.BXFR.PL; PL.length = 0;
         m.list.forEach(p => PL.push({ id: p.id, nick: p.nick || 'Jogador', st: p.st === 'playing' ? 'playing' : 'online', mut: 0 }));
+        try { window.BXFR.remember(); } catch (e) {}
         window.BXFR.redraw();
+      } else if (m.t === 'friends' && window.BXFR && window.BXFR.setFriends) { window.BXFR.setFriends(m.list);
       } else if (m.t === 'searching') { showSearch(m.seconds);
       } else if (m.t === 'match') {
         net.room = m.room; net.peers = Array.isArray(m.peers) ? m.peers : []; net.bots = !!m.bots;

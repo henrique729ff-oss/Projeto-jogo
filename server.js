@@ -28,7 +28,7 @@ if (DATABASE_URL) {
   pool.query('CREATE TABLE IF NOT EXISTS players(sub text PRIMARY KEY, id text UNIQUE NOT NULL, data jsonb NOT NULL)').catch(e => console.error('db', e.message));
 }
 const DB_FILE = path.join(process.env.DATA_DIR || path.join(__dirname, 'data'), 'users.json');
-const blank = id => ({ id, nick: '', coins: 0, diamonds: 0, items: { skins: [], banners: [] } });
+const blank = id => ({ id, nick: '', coins: 0, diamonds: 0, items: { skins: [], banners: [] }, friends: [] });
 const strip = u => { const { id, ...rest } = u; return rest; };
 const users = {};                 // cache: sub -> jogador
 const dirty = new Set();
@@ -67,6 +67,12 @@ async function findById(id) {
   for (const s in users) if (users[s].id === id) return { sub: s, u: users[s] };
   if (pool) { const r = await pool.query('SELECT sub FROM players WHERE id=$1', [id]); if (r.rows[0]) { const u = await loadBySub(r.rows[0].sub); return { sub: r.rows[0].sub, u }; } }
   return null;
+}
+const addFriend = (u, id) => { u.friends = u.friends || []; if (!u.friends.includes(id) && u.friends.length < 200) u.friends.push(id); };
+async function friendsMsg(u) {   // lista de amigos salvos (com apelido), online ou não
+  const list = [];
+  for (const fid of (u.friends || []).slice(0, 200)) { const r = await findById(fid); if (r) list.push({ id: fid, nick: r.u.nick || 'Jogador' }); }
+  return { t: 'friends', list };
 }
 const profileMsg = u => ({ t: 'profile', id: u.id, nick: u.nick, coins: u.coins, diamonds: u.diamonds, items: u.items });
 
@@ -191,6 +197,7 @@ wss.on('connection', ws => {
         c = { ws, id: u.id, nick: u.nick || '', st: 'online', room: null, sub };
         online.set(c.id, c);
         send(ws, { t: 'authed', id: c.id, name, nick: c.nick }); send(ws, profileMsg(u));
+        send(ws, await friendsMsg(u));
         scheduleBroadcast();
       } catch (e) { send(ws, { t: 'authFail', reason: 'login Google recusado' }); }
       return;
@@ -200,6 +207,11 @@ wss.on('connection', ws => {
     if (m.t === 'nick') {
       const n = String(m.nick || '').trim().slice(0, 20); if (!n) return;
       c.nick = n; users[c.sub].nick = n; touch(c.sub); scheduleBroadcast();
+    } else if (m.t === 'friendsSync' && Array.isArray(m.ids)) {   // traz para o servidor os amigos que já estavam salvos só no celular
+      const u = users[c.sub]; if (!u) return; let ch = false;
+      for (const x of m.ids.slice(0, 200)) { const id = String(x); if (id === c.id || (u.friends || []).includes(id)) continue; const r = await findById(id); if (r) { addFriend(u, id); ch = true; } }
+      if (ch) touch(c.sub);
+      send(ws, await friendsMsg(u));
     } else if (m.t === 'players') { send(ws, { t: 'players', list: [...online.values()].filter(o => o !== c).map(pub) });
     } else if (m.t === 'queue') { if (!c.nick) c.nick = 'Jogador'; c.mode = MODES.has(m.mode) ? m.mode : 'glad'; enqueue(c);
     } else if (m.t === 'cancel') { dequeue(c);
@@ -213,6 +225,10 @@ wss.on('connection', ws => {
       const kind = m.kind === 'friend' ? 'friend' : 'x1';
       const o = online.get(String(m.to)); if (!o || o === c) return;
       send(o.ws, { t: 'inviteReply', kind, ok: !!m.ok, msg: String(m.msg || '').slice(0, 80), from: pub(c) });
+      if (kind === 'friend' && m.ok) {   // amizade aceita: salva nos dois jogadores
+        const a = users[c.sub], b = users[o.sub];
+        if (a && b) { addFriend(a, o.id); addFriend(b, c.id); touch(c.sub); touch(o.sub); friendsMsg(a).then(x => send(ws, x)); friendsMsg(b).then(x => send(o.ws, x)); }
+      }
       if (kind === 'x1' && m.ok && !c.room && !o.room) { dequeue(c); dequeue(o); startMatch([{ c: o }, { c }], false); }   // X1 aceito: cria a partida dos dois
     } else if (m.t === 'st' && c.room) {         // estado do personagem (posição, animação, skin...) repassado aos colegas da sala
       const set = rooms.get(c.room); if (!set) return;
