@@ -77,7 +77,7 @@ async function friendsMsg(u) {   // lista de amigos salvos (com apelido), online
 const profileMsg = u => ({ t: 'profile', id: u.id, nick: u.nick, coins: u.coins, diamonds: u.diamonds, items: u.items });
 
 // ---------- servidor HTTP (serve /public) ----------
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.glb': 'model/gltf-binary', '.json': 'application/json', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.glb': 'model/gltf-binary', '.json': 'application/json', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
 const server = http.createServer((req, res) => {
   let url = decodeURIComponent((req.url || '/').split('?')[0]);
   if (url === '/config.js') {
@@ -108,11 +108,16 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
     return fs.createReadStream(f).pipe(res);
   }
-  const file = path.join(__dirname, 'public', path.normalize(url).replace(/^(\.\.[\/\\])+/, ''));
-  if (!file.startsWith(path.join(__dirname, 'public'))) { res.writeHead(403); return res.end(); }
+  // procura em /public e, se não achar, na raiz do projeto (ex.: confronto_map.txt solto ao lado do server.js)
+  const rel = path.normalize(url).replace(/^(\.\.[\/\\])+/, '');
+  const ext = path.extname(rel).toLowerCase();
+  const cands = [path.join(__dirname, 'public', rel)];
+  if (MIME[ext] && !/^[\/\\]?(server\.js|package(-lock)?\.json)$/i.test(rel)) cands.push(path.join(__dirname, rel));
+  const file = cands.find(p => p.startsWith(__dirname) && fs.existsSync(p) && fs.statSync(p).isFile());
+  if (!file) { res.writeHead(404); return res.end('not found'); }
   fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': url === '/index.html' ? 'no-cache' : 'public, max-age=3600' });
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'public, max-age=3600' });
     res.end(buf);
   });
 });
@@ -141,7 +146,7 @@ const SUBS = new Set(['solo', 'duo', 'duelo', 'squad']);
 const MIX_2V2 = false;          // true = Duo e Duelo compartilham a mesma fila
 const poolKey = c => c.mode + ':' + (c.sm === 'solo' ? 'solo' : (MIX_2V2 ? '2v2' : c.sm));
 const partyOf = c => c.party || { members: [c], leader: c };
-const partyMsg = c => ({ t: 'party', leader: c.party ? c.party.leader.id : c.id, members: c.party ? c.party.members.map(pub) : [] });
+const partyMsg = c => ({ t: 'party', leader: c.party ? c.party.leader.id : c.id, members: c.party ? c.party.members.map(pub) : [], mode: c.party ? c.party.leader.mode : c.mode, sub: c.party ? c.party.leader.sm : c.sm });
 function sendParty(p) { for (const m of p.members) send(m.ws, partyMsg(m)); }
 function disband(p, why) {
   for (const m of p.members) { m.party = null; send(m.ws, { t: 'party', leader: m.id, members: [] }); if (why) send(m.ws, { t: 'partyEnd', why }); }
@@ -164,7 +169,7 @@ function startMatch(teams) {
     const foes = teams[1 - ti], mates = team.filter(x => x !== c);
     c.room = room; c.st = 'playing'; c.team = ti;
     c.pair = (foes[i] || foes[0]).id;   // a engine do jogo mostra 1 adversário por jogador: cada um enfrenta o seu par
-    send(c.ws, { t: 'match', room, bots: false, team: ti, size: team.length, peers: foes.concat(mates).map(pub), foes: foes.map(pub), mates: mates.map(pub) });
+    send(c.ws, { t: 'match', room, mode: c.mode, sub: c.sm, bots: false, team: ti, size: team.length, peers: foes.concat(mates).map(pub), foes: foes.map(pub), mates: mates.map(pub) });
   }));
   scheduleBroadcast();
 }
@@ -172,11 +177,36 @@ function tryMatch(key) {
   const q = queue.filter(e => e.key === key && e.members.every(m => m.ws.readyState === 1 && online.get(m.id) === m && !m.room));
   queue = queue.filter(e => e.key !== key || q.includes(e));
   if (key.endsWith(':solo')) { if (q.length >= 2) startMatch([q[0].members, q[1].members]); return; }
+  if (key.endsWith(':duelo')) {   // Duelo = X1: equipe de 2 cai na hora um contra o outro; 2 sozinhos também se enfrentam
+    const par = q.find(e => e.members.length === 2);
+    if (par) return startMatch([[par.members[0]], [par.members[1]]]);
+    const um = q.filter(e => e.members.length === 1);
+    if (um.length >= 2) startMatch([um[0].members, um[1].members]);
+    return;
+  }
   const duos = q.filter(e => e.members.length === 2), ones = q.filter(e => e.members.length === 1);
   if (duos.length >= 2) return startMatch([duos[0].members, duos[1].members]);
   if (duos.length >= 1 && ones.length >= 2) return startMatch([duos[0].members, [ones[0].members[0], ones[1].members[0]]]);
   if (ones.length >= 4) return startMatch([[ones[0].members[0], ones[1].members[0]], [ones[2].members[0], ones[3].members[0]]]);
+  // equipe de 2 sem rivais há alguns segundos: os dois entram juntos contra NPCs
+  if (duos.length >= 1 && !ones.length && duos.length === 1 && Date.now() - duos[0].t >= FALLBACK_BOTS_MS) return startBotMatch(duos[0].members);
+  // só 2 jogadores sozinhos esperando há um tempo: não deixa travado, joga 1 x 1
+  if (ones.length >= 2 && !duos.length && Date.now() - ones[1].t >= FALLBACK_1V1_MS) return startMatch([ones[0].members, ones[1].members]);
 }
+const FALLBACK_BOTS_MS = (+process.env.FALLBACK_BOTS_SECONDS || 12) * 1000;
+function startBotMatch(team) {   // equipe junta contra NPCs: cada um recebe o colega em peers e o jogo cria os NPCs adversários
+  const room = 'r' + (roomSeq++);
+  rooms.set(room, new Set(team.map(c => c.id)));
+  queue = queue.filter(q => !q.members.some(m => team.includes(m)));
+  for (const c of team) {
+    const mate = team.find(x => x !== c);
+    c.room = room; c.st = 'playing'; c.team = 0; c.pair = mate.id;
+    send(c.ws, { t: 'match', room, mode: c.mode, sub: c.sm, bots: false, vsBots: true, team: 0, size: team.length, peers: [pub(mate)], foes: [], mates: [pub(mate)] });
+  }
+  scheduleBroadcast();
+}
+const FALLBACK_1V1_MS = (+process.env.FALLBACK_1V1_SECONDS || 12) * 1000;
+setInterval(() => { for (const k of new Set(queue.map(e => e.key))) tryMatch(k); }, 2000);
 function enqueue(c) {
   if (c.room) leaveRoom(c);
   const p = partyOf(c);
@@ -239,7 +269,7 @@ wss.on('connection', ws => {
       const nm = MODES.has(m.mode) ? m.mode : 'glad', ns = SUBS.has(m.sub) ? m.sub : 'solo';
       if (nm !== c.mode || ns !== c.sm) {
         c.mode = nm; c.sm = ns;
-        if (c.party) { if (ns === 'solo' && c.party.leader === c) disband(c.party, 'Solo não permite equipe'); else if (c.party.leader === c) { dequeueParty(c.party); c.party.members.forEach(x => { if (x !== c) { x.mode = nm; x.sm = ns; } }); } else leaveParty(c); }
+        if (c.party) { if (ns === 'solo' && c.party.leader === c) disband(c.party, 'Solo não permite equipe'); else if (c.party.leader === c) { dequeueParty(c.party); c.party.members.forEach(x => { if (x !== c) { x.mode = nm; x.sm = ns; } }); sendParty(c.party); } else leaveParty(c); }
         dequeue(c);
       }
     } else if (m.t === 'queue') {
