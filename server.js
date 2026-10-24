@@ -133,45 +133,67 @@ function broadcastPlayers() {
 let bpTimer = null;
 const scheduleBroadcast = () => { if (bpTimer) return; bpTimer = setTimeout(() => { bpTimer = null; broadcastPlayers(); }, 300); };
 
-function dequeue(c) { queue = queue.filter(q => { if (q.c === c) { clearTimeout(q.timer); return false; } return true; }); }
+// ---------- EQUIPES (lobby) E FILA ----------
+// Solo  : sem amigos no lobby; 1 x 1 contra outro Solo.
+// Duo / Duelo : pode chamar 1 amigo pro lobby (equipe de 2). Sempre 2 x 2:
+//    equipe de 2 + equipe de 2 | equipe de 2 + dois sozinhos | 4 sozinhos (forma 1+1 e 1+1).
+const SUBS = new Set(['solo', 'duo', 'duelo', 'squad']);
+const MIX_2V2 = false;          // true = Duo e Duelo compartilham a mesma fila
+const poolKey = c => c.mode + ':' + (c.sm === 'solo' ? 'solo' : (MIX_2V2 ? '2v2' : c.sm));
+const partyOf = c => c.party || { members: [c], leader: c };
+const partyMsg = c => ({ t: 'party', leader: c.party ? c.party.leader.id : c.id, members: c.party ? c.party.members.map(pub) : [] });
+function sendParty(p) { for (const m of p.members) send(m.ws, partyMsg(m)); }
+function disband(p, why) {
+  for (const m of p.members) { m.party = null; send(m.ws, { t: 'party', leader: m.id, members: [] }); if (why) send(m.ws, { t: 'partyEnd', why }); }
+}
+function leaveParty(c, why) {
+  const p = c.party; if (!p) return;
+  dequeueParty(p);
+  p.members = p.members.filter(m => m !== c); c.party = null; send(c.ws, { t: 'party', leader: c.id, members: [] });
+  if (p.members.length <= 1) { disband(p, why); } else { if (p.leader === c) p.leader = p.members[0]; sendParty(p); }
+}
+function dequeueParty(p) { const ms = p.members || [p]; queue = queue.filter(q => !q.members.some(m => ms.includes(m))); }
+function dequeue(c) { dequeueParty(c.party || { members: [c] }); }
 
-function startMatch(list, bots) {
+function startMatch(teams) {
+  const all = teams.flat();
   const room = 'r' + (roomSeq++);
-  const set = new Set(list.map(q => q.c.id)); rooms.set(room, set);
-  for (const q of list) { clearTimeout(q.timer); q.c.room = room; q.c.st = 'playing'; }
-  queue = queue.filter(q => !list.includes(q));
-  for (const q of list) send(q.c.ws, { t: 'match', room, bots, peers: list.filter(o => o !== q).map(o => pub(o.c)) });
+  rooms.set(room, new Set(all.map(c => c.id)));
+  queue = queue.filter(q => !q.members.some(m => all.includes(m)));
+  teams.forEach((team, ti) => team.forEach((c, i) => {
+    const foes = teams[1 - ti], mates = team.filter(x => x !== c);
+    c.room = room; c.st = 'playing'; c.team = ti;
+    c.pair = (foes[i] || foes[0]).id;   // a engine do jogo mostra 1 adversário por jogador: cada um enfrenta o seu par
+    send(c.ws, { t: 'match', room, bots: false, team: ti, size: team.length, peers: foes.concat(mates).map(pub), foes: foes.map(pub), mates: mates.map(pub) });
+  }));
   scheduleBroadcast();
 }
+function tryMatch(key) {
+  const q = queue.filter(e => e.key === key && e.members.every(m => m.ws.readyState === 1 && online.get(m.id) === m && !m.room));
+  queue = queue.filter(e => e.key !== key || q.includes(e));
+  if (key.endsWith(':solo')) { if (q.length >= 2) startMatch([q[0].members, q[1].members]); return; }
+  const duos = q.filter(e => e.members.length === 2), ones = q.filter(e => e.members.length === 1);
+  if (duos.length >= 2) return startMatch([duos[0].members, duos[1].members]);
+  if (duos.length >= 1 && ones.length >= 2) return startMatch([duos[0].members, [ones[0].members[0], ones[1].members[0]]]);
+  if (ones.length >= 4) return startMatch([[ones[0].members[0], ones[1].members[0]], [ones[2].members[0], ones[3].members[0]]]);
+}
 function enqueue(c) {
-  if (c.room) leaveRoom(c);   // saiu da partida anterior: pode procurar outra
-  dequeue(c);
-
-  // Não pareia o mesmo cliente duas vezes e não cria partida solo.
-  const entry = { c, timer: null };
-  queue.push(entry);
-
-  // Só começa quando existem DOIS clientes reais, autenticados e ainda conectados.
-  const waiting = queue.filter(q =>
-    q.c && q.c.ws && q.c.ws.readyState === 1 &&
-    online.get(q.c.id) === q.c && !q.c.room
-  );
-  queue = waiting;
-
-  const same = queue.filter(q => q.c.mode === c.mode);   // só pareia quem procura o mesmo modo
-  if (same.length >= MAX_ROOM) {
-    return startMatch(same.slice(0, MAX_ROOM), false);
-  }
-
-  // Mantém a busca aberta indefinidamente. O valor de 60 s é apenas para a interface;
-  // expirar esse contador nunca deve iniciar a partida com NPCs.
-  send(c.ws, { t: 'searching', seconds: QUEUE_MS / 1000 });
+  if (c.room) leaveRoom(c);
+  const p = partyOf(c);
+  if (c.party && c.party.leader !== c) return send(c.ws, { t: 'queueFail', reason: 'Só o dono da equipe inicia a partida' });
+  if (c.sm === 'solo' && c.party) leaveParty(c);   // Solo não tem equipe
+  const ms = c.party ? c.party.members : [c];
+  if (ms.some(m => m.room)) ms.forEach(m => m.room && leaveRoom(m));
+  dequeueParty({ members: ms });
+  queue.push({ key: poolKey(c), members: ms.slice(), t: Date.now() });
+  for (const m of ms) send(m.ws, { t: 'searching', seconds: QUEUE_MS / 1000 });
+  tryMatch(poolKey(c));   // espera indefinidamente por jogadores reais, nunca completa com bots
 }
 function leaveRoom(c) {
   if (!c.room) return;
   const set = rooms.get(c.room);
   if (set) { set.delete(c.id); for (const id of set) { const o = online.get(id); if (o) send(o.ws, { t: 'left', id: c.id }); } if (!set.size) rooms.delete(c.room); }
-  c.room = null; c.st = 'online'; scheduleBroadcast();
+  c.room = null; c.pair = null; c.st = 'online'; scheduleBroadcast();
 }
 
 wss.on('connection', ws => {
@@ -194,7 +216,7 @@ wss.on('connection', ws => {
         const u = await userFor(sub);
         if (c) { online.delete(c.id); }
         const old = online.get(u.id); if (old && old.ws !== ws) { try { old.ws.close(); } catch (e) {} }
-        c = { ws, id: u.id, nick: u.nick || '', st: 'online', room: null, sub };
+        c = { ws, id: u.id, nick: u.nick || '', st: 'online', room: null, sub, mode: 'glad', sm: 'solo', party: null };
         online.set(c.id, c);
         send(ws, { t: 'authed', id: c.id, name, nick: c.nick }); send(ws, profileMsg(u));
         send(ws, await friendsMsg(u));
@@ -213,13 +235,33 @@ wss.on('connection', ws => {
       if (ch) touch(c.sub);
       send(ws, await friendsMsg(u));
     } else if (m.t === 'players') { send(ws, { t: 'players', list: [...online.values()].filter(o => o !== c).map(pub) });
-    } else if (m.t === 'queue') { if (!c.nick) c.nick = 'Jogador'; c.mode = MODES.has(m.mode) ? m.mode : 'glad'; enqueue(c);
+    } else if (m.t === 'mode') {   // o lobby avisa o modo/submodo escolhido (Solo / Duo / Duelo)
+      const nm = MODES.has(m.mode) ? m.mode : 'glad', ns = SUBS.has(m.sub) ? m.sub : 'solo';
+      if (nm !== c.mode || ns !== c.sm) {
+        c.mode = nm; c.sm = ns;
+        if (c.party) { if (ns === 'solo' && c.party.leader === c) disband(c.party, 'Solo não permite equipe'); else if (c.party.leader === c) { dequeueParty(c.party); c.party.members.forEach(x => { if (x !== c) { x.mode = nm; x.sm = ns; } }); } else leaveParty(c); }
+        dequeue(c);
+      }
+    } else if (m.t === 'queue') {
+      if (!c.nick) c.nick = 'Jogador';
+      c.mode = MODES.has(m.mode) ? m.mode : 'glad'; c.sm = SUBS.has(m.sub) ? m.sub : (c.sm || 'solo');
+      if (c.party && c.party.leader === c) c.party.members.forEach(x => { x.mode = c.mode; x.sm = c.sm; });
+      enqueue(c);
     } else if (m.t === 'cancel') { dequeue(c);
+    } else if (m.t === 'partyLeave') { leaveParty(c, 'Você saiu da equipe'); 
     } else if (m.t === 'leave') { leaveRoom(c);
-    } else if (m.t === 'invite') {   // pedido de amizade ('friend') ou chamada para X1 ('x1')
+    } else if (m.t === 'invite') {   // pedido de amizade ('friend') ou chamada pra equipe do lobby ('x1')
       const kind = m.kind === 'friend' ? 'friend' : 'x1';
       const o = online.get(String(m.to)); if (!o || o === c) return;
-      if (kind === 'x1' && o.room) return send(ws, { t: 'inviteReply', kind, ok: false, msg: 'Está em partida', from: pub(o) });
+      const no = msg => send(ws, { t: 'inviteReply', kind, ok: false, msg, from: pub(o) });
+      if (kind === 'x1') {
+        if (c.sm === 'solo' || !c.sm) return no('No Solo não dá pra chamar amigo');
+        if (c.party && c.party.leader !== c) return no('Só o dono da equipe chama');
+        if (c.party && c.party.members.length >= 2) return no('Equipe cheia (máx. 2)');
+        if (queue.some(q => q.members.includes(c))) return no('Cancele a busca antes de chamar');
+        if (o.room) return no('Está em partida');
+        if (o.party) return no('Já está em outra equipe');
+      }
       send(o.ws, { t: 'invite', kind, from: pub(c) });
     } else if (m.t === 'inviteReply') {   // resposta de quem recebeu: repassa para quem convidou
       const kind = m.kind === 'friend' ? 'friend' : 'x1';
@@ -229,14 +271,19 @@ wss.on('connection', ws => {
         const a = users[c.sub], b = users[o.sub];
         if (a && b) { addFriend(a, o.id); addFriend(b, c.id); touch(c.sub); touch(o.sub); friendsMsg(a).then(x => send(ws, x)); friendsMsg(b).then(x => send(o.ws, x)); }
       }
-      if (kind === 'x1' && m.ok && !c.room && !o.room) { dequeue(c); dequeue(o); startMatch([{ c: o }, { c }], false); }   // X1 aceito: cria a partida dos dois
+      if (kind === 'x1' && m.ok) {   // aceitou: entra na equipe do lobby de quem chamou (NÃO inicia a partida)
+        if (!o.sm || o.sm === 'solo' || c.room || o.room || c.party || (o.party && o.party.members.length >= 2)) return;
+        dequeue(c); dequeue(o);
+        const p = o.party || (o.party = { leader: o, members: [o] });
+        p.members.push(c); c.party = p; c.mode = o.mode; c.sm = o.sm;
+        sendParty(p);
+      }
     } else if (m.t === 'st' && c.room) {         // estado do personagem (posição, animação, skin...) repassado aos colegas da sala
       const set = rooms.get(c.room); if (!set) return;
-      const out = JSON.stringify({ t: 'st', from: c.id, d: m.d });
-      for (const id of set) if (id !== c.id) { const o = online.get(id); if (o && o.ws.readyState === 1) o.ws.send(out); }
+      const o = online.get(c.pair); if (o && o.room === c.room && o.ws.readyState === 1) o.ws.send(JSON.stringify({ t: 'st', from: c.id, d: m.d }));   // só o adversário pareado (a engine mostra 1 por vez)
     }
   });
-  ws.on('close', () => { if (!c) return; dequeue(c); leaveRoom(c); if (online.get(c.id) === c) online.delete(c.id); scheduleBroadcast(); });
+  ws.on('close', () => { if (!c) return; dequeue(c); leaveParty(c, 'Seu amigo saiu'); leaveRoom(c); if (online.get(c.id) === c) online.delete(c.id); scheduleBroadcast(); });
 });
 setInterval(() => wss.clients.forEach(w => { if (!w.isAlive) return w.terminate(); w.isAlive = false; w.ping(); }), 30000);
 
